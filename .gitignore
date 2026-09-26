@@ -1,0 +1,18 @@
+node_modules/
+data/
+*.log
+*.bak
+
+# 収集専用Chromeのプロファイル（セッション情報を含むためコミット禁止）
+.chrome-profile/
+.dashboard-profile/
+
+# 個人設定（実請求情報・独自アカウント名を含むためサンプルのみコミット）
+config/settings.json
+config/pricing.json
+
+# エディタ・OS固有ファイル
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

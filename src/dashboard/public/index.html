@@ -1,0 +1,1226 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>AI Quota Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  /* ★テーマ「潜水艦のボイラー室」（2026-09-24）: 青と白を基調。
+     白塗装の鋼板・リベット・配管・圧力計・銘板で機関室の計器盤に見立てる。
+     OSのダーク設定に関わらず常にこの配色。
+     色の意味（青=安定 / 黄=警戒 / 赤=臨界）と閾値は従来どおり barSev() が正本。 */
+  :root{
+    color-scheme:light;
+    --bg:#e3ebf4; --plate:#f7fafd; --plate-edge:#9fb3cb; --seam:rgba(70,100,140,.16);
+    --panel:#ffffff; --panel-deep:#eef3f9; --panel2:#e3ebf5; --line:#c3d2e4;
+    --navy:#173a66; --navy2:#10294a; --frame:#1f6fd1; --frame-soft:#7ea8d8; --frame-faint:rgba(31,111,209,.2);
+    --pipe-hi:#ffffff; --pipe-mid:#a9bdd6; --pipe-lo:#5f7ea4;
+    --rivet:radial-gradient(circle,#ffffff 0 1.2px,#b7c7da 1.6px,#6f88a8 2.6px,transparent 3.2px);
+    --fg:#13254a; --muted:#52668c;
+    --ok:#12805c; --warn:#a86b00; --danger:#d0283c; --accent:#1f7ae0;
+    --country-us:rgba(31,122,224,.06); --country-cn:rgba(208,40,60,.05);
+    --stencil:"Barlow Condensed","Yu Gothic UI","Segoe UI",sans-serif;
+    --mono:"Share Tech Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{background:var(--bg)}
+  body{margin:0;padding:0 24px 24px;min-height:100vh;color:var(--fg);
+    font-family:"Segoe UI",system-ui,"Yu Gothic UI",sans-serif;line-height:1.5;
+    /* 鋼板の継ぎ目（横・縦）＋上からの照明 */
+    background:
+      linear-gradient(180deg,rgba(255,255,255,.7),transparent 240px),
+      repeating-linear-gradient(0deg,transparent 0 219px,var(--seam) 219px 220px),
+      repeating-linear-gradient(90deg,transparent 0 339px,var(--seam) 339px 340px),
+      var(--bg)}
+  /* ヘッダ＝計器盤の上部パネル。下辺に太い配管（フランジ継手つき） */
+  /* ★配置はグリッドで固定（2026-09-25）: 1段目＝ロゴ｜余白｜月額計器｜為替計器｜ランプ＋ボタン、
+     2段目＝最終取得などのメタ情報。計器2つは同じ高さに揃える */
+  header{position:relative;display:grid;align-items:stretch;column-gap:16px;row-gap:10px;
+    grid-template-columns:auto minmax(0,1fr) auto auto auto auto;
+    grid-template-areas:"brand . total fx rp actions" "meta meta meta meta meta meta";
+    margin:0 -24px 30px;padding:16px 24px 12px;
+    background:linear-gradient(180deg,var(--navy),var(--navy2));color:#fff;
+    box-shadow:0 2px 0 rgba(255,255,255,.15) inset}
+  header::after{content:"";position:absolute;left:0;right:0;bottom:-12px;height:12px;
+    background:
+      repeating-linear-gradient(90deg,transparent 0 196px,rgba(40,60,90,.55) 196px 198px,transparent 198px 214px,rgba(40,60,90,.55) 214px 216px,transparent 216px 260px),
+      linear-gradient(180deg,var(--pipe-lo),var(--pipe-hi) 35%,var(--pipe-mid) 65%,var(--pipe-lo));
+    box-shadow:0 3px 6px rgba(20,40,70,.25)}
+  .brand{grid-area:brand;align-self:center;display:flex;flex-direction:column;line-height:1.1}
+  #subtotal{grid-area:total} #fx-panel{grid-area:fx} #runpod-panel{grid-area:rp}
+  /* RunPod 小パネル（LLM とは別枠）: 残高＝7セグ、右に円換算と稼働中の消費レート */
+  .rpp-screen{justify-content:flex-start}
+  .rpp-val{font-family:"DSEG7",var(--mono);font-weight:700;font-size:24px;line-height:1;color:#7fd3ff;
+    text-shadow:0 0 8px rgba(79,179,255,.75);font-variant-numeric:tabular-nums}
+  .rpp-val.err{font-family:var(--mono);font-size:13px;color:#ffb4bd;text-shadow:0 0 8px rgba(255,64,87,.6)}
+  .rpp-side{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;padding-left:10px;
+    font-family:var(--mono);font-size:11px;line-height:1.35;color:#b9cde6;white-space:nowrap}
+  .rpp-side .run{color:#ffd27a}
+  .rpp .meter-sub .stale{color:#8a4b00;font-weight:700}
+  h1{font-family:var(--stencil);font-weight:700;font-size:26px;letter-spacing:.16em;margin:0;color:#fff}
+  .brand .sub-title{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:#9fc3ee;margin-top:3px}
+  .muted{color:var(--muted);font-size:13px}
+  .hdr-meta{grid-area:meta;display:flex;gap:2px;min-width:0;padding-top:8px;border-top:1px solid rgba(159,195,238,.18)}
+  header .muted{color:#b9cde6}
+  /* 月額合計の7セグ計器: 凹んだ液晶窓＋消灯セグメント(88,888)の上に点灯数字を重ねる */
+  @font-face{font-family:"DSEG7";font-weight:700;font-display:swap;
+    src:url("https://cdn.jsdelivr.net/npm/dseg@0.46.0/fonts/DSEG7-Classic/DSEG7Classic-Bold.woff2") format("woff2")}
+  .meter{display:flex;flex-direction:column;gap:3px;padding:6px 12px 7px;border-radius:4px;
+    background:linear-gradient(180deg,#dfe8f3,#b9c9dc);border:1px solid #7f96b3;
+    box-shadow:inset 0 1px 0 #fff,0 2px 6px rgba(0,0,0,.35)}
+  .meter-label{font-family:var(--stencil);font-weight:700;font-size:12px;letter-spacing:.16em;color:var(--navy)}
+  .meter-label span{font-family:"Yu Gothic UI","Segoe UI",sans-serif;font-weight:600;letter-spacing:.04em;margin-left:6px;font-size:11px}
+  .meter-screen{flex:1;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:5px 10px 4px;border-radius:3px;min-height:62px;
+    background:linear-gradient(180deg,#061425,#0b2340);border:1px solid #041022;
+    box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}
+  .meter-yen{font-family:var(--mono);font-size:18px;color:#7fd3ff;text-shadow:0 0 6px rgba(79,179,255,.7)}
+  .meter-digits{position:relative;font-family:"DSEG7",var(--mono);font-weight:700;font-size:28px;line-height:1;
+    font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .meter-ghost{color:rgba(127,211,255,.1)}
+  .meter-val{position:absolute;right:0;top:0;color:#7fd3ff;text-shadow:0 0 8px rgba(79,179,255,.75);white-space:nowrap}
+  .meter-val.err{color:#ffb4bd;text-shadow:0 0 8px rgba(255,64,87,.6);font-family:var(--mono);font-size:14px;top:8px}
+  .meter-sub{font-family:var(--mono);font-size:11px;color:var(--navy);display:flex;gap:10px;flex-wrap:wrap}
+  .meter-sub .next{color:#0e3f7c;font-weight:700}
+  /* 為替7日グラフ: 合計計器と同じ液晶窓に折れ線（ECB日次）と点（換算に使用）を描く */
+  .fxp-screen{flex:1;display:flex;align-items:center;gap:10px;padding:4px 10px 4px 6px;border-radius:3px;min-height:62px;
+    background:linear-gradient(180deg,#061425,#0b2340);border:1px solid #041022;box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}
+  .fxp-chart{width:172px;height:54px;flex:none;display:block}
+  .fxp-now{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1;min-width:64px}
+  .fxp-val{font-family:"DSEG7",var(--mono);font-weight:700;font-size:17px;color:#7fd3ff;text-shadow:0 0 8px rgba(79,179,255,.75)}
+  .fxp-delta{font-family:var(--mono);font-size:11px;margin-top:4px;color:#b9cde6}
+  .fxp-delta.up{color:#ffd27a} .fxp-delta.down{color:#6ee7b7}
+  .fxp .meter-sub .k-line::before{content:"";display:inline-block;width:12px;height:2px;margin-right:4px;vertical-align:middle;background:#4fb3ff}
+  .fxp .meter-sub .k-dot::before{content:"";display:inline-block;width:5px;height:5px;margin-right:4px;vertical-align:middle;border-radius:50%;background:#ffd27a}
+  /* 内訳の銘板列 */
+  .readouts{display:flex;flex-wrap:wrap;gap:8px;margin:-8px 0 22px}
+  .readout{display:inline-flex;align-items:baseline;gap:8px;padding:4px 10px;border-radius:3px;
+    background:#fff;border:1px solid var(--plate-edge);box-shadow:0 1px 3px rgba(20,50,90,.1);font-size:12px}
+  .readout .svc{font-family:var(--stencil);font-weight:700;letter-spacing:.06em;color:var(--navy);font-size:13px}
+  .readout .pl{color:var(--muted);font-size:11px}
+  .readout .amt{font-family:var(--mono);font-size:13px;color:var(--fg)}
+  .readout .raw{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .readout .chg{font-family:var(--mono);font-size:11px;color:#0e3f7c}
+  .readout.unset .amt{color:var(--warn)}
+  .hdr-actions{grid-area:actions;display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:10px}
+  .hdr-actions .lamp{justify-content:center}
+  /* 表示灯（観測ランプ）: 丸い計器ランプ＋金属ベゼル */
+  .lamp{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;letter-spacing:.05em;
+    padding:4px 12px 4px 8px;border-radius:3px;background:#0b1f3a;color:#dbe8f7;
+    border:1px solid #3d5f8c;white-space:nowrap}
+  .lamp::before{content:"";width:11px;height:11px;border-radius:50%;background:#6b7c93;
+    box-shadow:0 0 0 2px #8ea3bd,inset 0 -2px 3px rgba(0,0,0,.35)}
+  .lamp.ok::before{background:#34d49a;box-shadow:0 0 0 2px #8ea3bd,0 0 10px #34d49a}
+  .lamp.busy::before{background:#4fb3ff;box-shadow:0 0 0 2px #8ea3bd,0 0 10px #4fb3ff;animation:pulse 1.2s ease-in-out infinite}
+  .lamp.stale{color:#ffd27a} .lamp.stale::before{background:#f0b43c;box-shadow:0 0 0 2px #8ea3bd,0 0 10px #f0b43c}
+  .lamp.down{color:#ff9aa5} .lamp.down::before{background:#ff4057;box-shadow:0 0 0 2px #8ea3bd,0 0 10px #ff4057}
+  @keyframes pulse{50%{opacity:.35}}
+  button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+    border-radius:3px;padding:6px 14px;cursor:pointer;font-size:13px;
+    transition:border-color .15s ease-out,box-shadow .15s ease-out,transform .1s ease-out}
+  button:hover{border-color:var(--frame)}
+  button:focus-visible{outline:2px solid var(--frame);outline-offset:2px}
+  button:disabled{opacity:.5;cursor:default}
+  /* 押しボタン: 白い鋼の台座に青いボタン */
+  #refresh{font-family:var(--stencil);font-weight:700;font-size:15px;letter-spacing:.14em;padding:7px 22px;color:#fff;
+    border:1px solid #0e3f7c;border-radius:4px;
+    background:linear-gradient(180deg,#5aa9f5,var(--frame) 55%,#1659ad);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 3px 0 #0e3f7c,0 0 0 4px #dfe8f3,0 0 0 5px #8ea3bd}
+  #refresh:hover:not(:disabled){filter:brightness(1.07)}
+  #refresh:active:not(:disabled){transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 0 #0e3f7c,0 0 0 4px #dfe8f3,0 0 0 5px #8ea3bd}
+  #refresh:focus-visible{outline:2px solid #fff;outline-offset:6px}
+  .grid{display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+  /* 計器パネル: 白塗装の鋼板＋四隅のリベット */
+  .card{position:relative;padding:0 18px 14px;border:1px solid var(--plate-edge);border-radius:4px;
+    background:linear-gradient(180deg,var(--panel),var(--panel-deep));
+    box-shadow:inset 0 1px 0 #fff,0 1px 0 #fff,0 6px 16px rgba(20,50,90,.14)}
+  .card::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:4px;
+    background:var(--rivet) left 3px bottom 3px/8px 8px no-repeat,var(--rivet) right 3px bottom 3px/8px 8px no-repeat}
+  .card.country-us{background:radial-gradient(120% 50% at 50% 0,var(--country-us),transparent 70%),linear-gradient(180deg,var(--panel),var(--panel-deep))}
+  .card.country-cn{background:radial-gradient(120% 50% at 50% 0,var(--country-cn),transparent 70%),linear-gradient(180deg,var(--panel),var(--panel-deep))}
+  /* 銘板（ネームプレート）: 紺地に白の刻印文字＋両端リベット */
+  .card h2{position:relative;font-family:var(--stencil);font-size:18px;font-weight:700;letter-spacing:.1em;
+    margin:0 -18px 4px;padding:7px 18px 6px 26px;display:flex;align-items:center;gap:8px;color:#fff;
+    background:
+      var(--rivet) left 8px center/8px 8px no-repeat,
+      linear-gradient(180deg,#2a5a95,var(--navy));
+    border-radius:3px 3px 0 0;border-bottom:2px solid var(--frame)}
+  .plan{font-family:var(--mono);font-size:11px;color:#b9d3f2;font-weight:400;letter-spacing:.04em}
+  .badge{font-family:"Segoe UI",system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:0;padding:1px 8px;border-radius:2px;border:1px solid var(--line)}
+  .badge.err{background:var(--danger);border-color:#fff;color:#fff}
+  .badge.stale{background:#f0b43c;border-color:#fff;color:#10294a}
+  .row{margin-top:14px}
+  .row .label{display:flex;justify-content:space-between;font-size:12px;gap:8px}
+  .row .label .name{color:var(--fg)}
+  .row .label .val{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+  /* 液面計（サイトグラス）風のバー: 凹んだガラス管＋目盛り */
+  .bar{position:relative;height:9px;border-radius:5px;background:#dde6f1;margin-top:5px;overflow:hidden;
+    box-shadow:inset 0 1px 3px rgba(20,40,70,.35),0 1px 0 #fff}
+  .bar::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(20,40,70,.18) calc(10% - 1px) 10%)}
+  .bar>i{display:block;height:100%;border-radius:5px;transition:width .3s ease-out;
+    background-image:linear-gradient(180deg,rgba(255,255,255,.55),transparent 55%)}
+  .ok>i{background-color:var(--ok)} .warn>i{background-color:#e0a21e} .danger>i{background-color:var(--danger)}
+  .blue>i{background-color:var(--accent)}
+  .sub{font-size:11px;color:var(--muted);margin-top:3px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .reset-at{margin-left:auto;white-space:nowrap;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .spend{margin-top:16px;padding-top:12px;border-top:2px dotted var(--line)}
+  .kv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .none{color:var(--muted);font-style:italic;font-family:inherit}
+  .foot{margin-top:14px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between;font-family:var(--mono)}
+  /* レート制限ゲージ（圧力計型）:
+     全サービスを canonical の used_percent（使用率）表示に統一する。
+     ゲージはカードに1つ=最も逼迫した枠(律速枠)を指す */
+  .gauge-wrap{display:flex;align-items:center;gap:14px;margin-top:10px;
+    padding-bottom:12px;border-bottom:2px dotted var(--line)}
+  svg.gauge{width:122px;height:122px;flex:none;filter:drop-shadow(0 3px 4px rgba(20,40,70,.25))}
+  .gauge-cap{flex:1;min-width:0;line-height:1.45}
+  .gauge-cap .lbl{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em}
+  .gauge-cap .word{font-family:var(--stencil);font-size:22px;font-weight:700;letter-spacing:.2em;margin-top:1px}
+  .gauge-cap .frame{font-size:11px;color:var(--muted);margin-top:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gauge-cap .rst{font-size:11px;color:var(--muted);margin-top:1px}
+  /* 針はSVG属性rotateでなくCSS transform（transform-box:view-box必須）。
+     値弧は stroke-dashoffset のみ遷移させ、dasharray は固定で安定させる */
+  .gauge .needle{transform-box:view-box;transform-origin:60px 60px;
+    transition:transform .6s cubic-bezier(.22,.61,.36,1)}
+  .gauge .arc-val{transition:stroke-dashoffset .6s cubic-bezier(.22,.61,.36,1),stroke .3s}
+  svg.spark{display:block;width:100%;height:38px;margin-top:8px;
+    background:repeating-linear-gradient(0deg,transparent 0 9px,rgba(31,111,209,.08) 9px 10px)}
+  details{position:relative;margin-top:30px;background:linear-gradient(180deg,var(--panel),var(--panel-deep));
+    border:1px solid var(--plate-edge);border-radius:4px;padding:12px 16px 12px 28px;
+    box-shadow:0 4px 12px rgba(20,50,90,.1)}
+  details::before{content:"";position:absolute;left:9px;top:15px;width:8px;height:8px;background:var(--rivet)}
+  summary{cursor:pointer;font-family:var(--stencil);font-weight:700;font-size:16px;letter-spacing:.2em;color:var(--navy)}
+  .form{display:grid;grid-template-columns:auto auto;gap:8px 14px;align-items:center;margin-top:12px;font-size:13px}
+  input[type=number]{width:90px;background:#fff;color:var(--fg);font-family:var(--mono);
+    border:1px solid var(--plate-edge);border-radius:3px;padding:4px 8px;box-shadow:inset 0 1px 2px rgba(20,40,70,.15)}
+  .warnbox{margin-top:14px;font-size:12px;color:var(--warn)}
+  .warnbox.ok{color:var(--ok)}
+  .form-block{margin-top:16px;border-top:2px dotted var(--line);padding-top:12px}
+  .form-block h3{font-family:var(--stencil);font-size:15px;letter-spacing:.12em;margin:0 0 8px;color:var(--navy)}
+  .svc-row{display:flex;align-items:center;gap:10px;font-size:13px;padding:4px 0}
+  .svc-row .svc-name{width:110px;flex:none}
+  .svc-row .move{margin-left:auto;display:flex;gap:4px}
+  .svc-row .move button{min-width:26px;padding:2px 6px;font-size:11px;line-height:1.4}
+  /* 表示/非表示トグルスイッチ（ネイティブcheckboxをsr-onlyに落として視覚化。
+     keyboard操作・focusはinputに残るのでアクセシブル。ノブはtransformのみ・150ms） */
+  .switch{position:relative;display:inline-flex;align-items:center;cursor:pointer;flex:none;user-select:none}
+  .switch input{position:absolute;width:1px;height:1px;opacity:0;margin:0;pointer-events:none}
+  .switch .track{position:relative;width:34px;height:18px;border-radius:999px;
+    background:#c9d5e4;border:1px solid var(--plate-edge);flex:none;box-shadow:inset 0 1px 2px rgba(20,40,70,.3);
+    transition:background-color .15s ease-out,border-color .15s ease-out}
+  .switch .knob{position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;
+    background:linear-gradient(180deg,#fff,#c3d0e0);box-shadow:0 1px 2px rgba(0,0,0,.35);transform:translateX(0);
+    transition:transform .15s ease-out,background-color .15s ease-out}
+  .switch input:checked + .track{background:var(--accent);border-color:#0e3f7c}
+  .switch input:checked + .track .knob{transform:translateX(16px)}
+  .switch input:focus-visible + .track{outline:2px solid var(--frame);outline-offset:2px}
+  .card h2 .switch input:focus-visible + .track{outline-color:#fff}
+  .card h2 .switch .track{background:rgba(255,255,255,.25);border-color:rgba(255,255,255,.5)}
+  .card h2 .switch input:checked + .track{background:#4fb3ff;border-color:#fff}
+  .switch input:disabled + .track{opacity:.5;cursor:default}
+  @media (prefers-reduced-motion: reduce){
+    .switch .track,.switch .knob,.bar>i,.gauge .needle,.gauge .arc-val,button{transition:none}
+    .lamp.busy::before{animation:none}
+  }
+  .card h2 .switch{margin-left:auto} /* カード右上に寄せる */
+  .svc-row .switch{margin-left:auto}  /* 設定パネルは move ボタンの直前に寄せる */
+  .density-opts{display:flex;gap:14px;font-size:13px}
+  .density-opts label{display:flex;align-items:center;gap:5px;cursor:pointer}
+  .density-opts input{accent-color:var(--frame)}
+  .offrow{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .offnote{font-size:12px;color:var(--muted)}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:#fff;
+    border:1px dashed var(--plate-edge);border-radius:3px;padding:4px 12px;font-size:12px;color:var(--muted)}
+  .chip .dot{width:8px;height:8px;border-radius:50%;background:#8a99ad;flex:none;box-shadow:inset 0 -1px 2px rgba(0,0,0,.3)}
+  body.compact .card{padding:0 12px 10px}
+  body.compact .card h2{margin:0 -12px 4px;padding-left:22px;font-size:16px}
+  body.compact .row{margin-top:8px}
+  body.compact .bar{height:6px}
+  body.compact svg.spark{display:none}
+  body.compact .kv{padding:1px 0}
+  body.compact .spend{display:none} /* コンパクトではクレジット関連（消費・残高・上限）を隠す */
+  body.compact svg.gauge{width:96px;height:96px} /* ゲージは情報密度が高いので縮小して残す */
+  body.compact .gauge-cap .frame{display:none}   /* 対象枠名の行だけ落とす（帯ワードとリセット時刻は残す） */
+  body.compact .grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+  input[type=number]:focus-visible{outline:2px solid var(--frame);outline-offset:1px}
+  /* 中幅: ロゴ＋操作 / 計器2つを横並び / メタ */
+  @media (max-width:1240px){
+    header{grid-template-columns:repeat(3,minmax(0,1fr));
+      grid-template-areas:"brand brand actions" "total fx rp" "meta meta meta"}
+    .hdr-actions{flex-direction:row;justify-self:end;align-items:center}
+  }
+  @media (max-width:900px){
+    header{grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+      grid-template-areas:"brand actions" "total fx" "rp rp" "meta meta"}
+  }
+  /* 狭幅: 1列に積む */
+  @media (max-width:640px){
+    body{padding:0 16px 16px}
+    header{margin:0 -16px 28px;padding:14px 16px 12px;grid-template-columns:minmax(0,1fr);
+      grid-template-areas:"brand" "actions" "total" "fx" "rp" "meta"}
+    .hdr-actions{justify-self:stretch;justify-content:space-between}
+    .grid,body.compact .grid{grid-template-columns:1fr}
+  }</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>AI QUOTA VIEWER</h1>
+    <span class="sub-title">ENGINE ROOM · 機関室 計器盤 · v8</span>
+  </div>
+  <!-- 月額サブスク合計: 7セグ表示の計器（2026-09-24） -->
+  <div class="meter" id="subtotal" role="group" aria-label="契約サブスク月額合計">
+    <div class="meter-label">MONTHLY TOTAL<span>· 契約サブスク月額</span></div>
+    <div class="meter-screen">
+      <span class="meter-yen">¥</span>
+      <span class="meter-digits"><span class="meter-ghost" aria-hidden="true" id="subtotal-ghost">88,888</span><span class="meter-val" id="subtotal-val">-----</span></span>
+    </div>
+    <div class="meter-sub" id="subtotal-sub"></div>
+  </div>
+  <!-- 為替 7日グラフ（2026-09-25）: 線=ECB日次（参考）/ 点=円換算に実際に使った値 -->
+  <div class="meter fxp" id="fx-panel" role="group" aria-label="USD/JPY 7日間の推移">
+    <div class="meter-label">USD/JPY<span>· 7日間の為替</span></div>
+    <div class="fxp-screen">
+      <svg class="fxp-chart" id="fx-chart" viewBox="0 0 172 54" aria-hidden="true" focusable="false"></svg>
+      <div class="fxp-now"><span class="fxp-val" id="fx-now">---.--</span><span class="fxp-delta" id="fx-delta"></span></div>
+    </div>
+    <div class="meter-sub" id="fx-sub"></div>
+  </div>
+  <!-- RunPod クレジット残高（LLM とは別枠・2026-09-26） -->
+  <div class="meter rpp" id="runpod-panel" role="group" aria-label="RunPod クレジット残高">
+    <div class="meter-label">RUNPOD<span>· クレジット残高</span></div>
+    <div class="meter-screen rpp-screen">
+      <span class="meter-yen">$</span>
+      <span class="rpp-val" id="rp-val">--.--</span>
+      <span class="rpp-side"><span id="rp-yen"></span><span id="rp-rate"></span></span>
+    </div>
+    <div class="meter-sub" id="rp-sub"></div>
+  </div>
+  <div class="hdr-meta">
+    <span class="muted" id="updated" style="font-size:12px">読み込み中…</span>
+  </div>
+  <div class="hdr-actions">
+    <span class="lamp" id="lamp" role="status" aria-live="polite">接続確認中</span>
+    <button id="refresh">今すぐ更新</button>
+  </div>
+</header>
+
+<div class="readouts" id="sub-breakdown" aria-label="月額の内訳"></div>
+<div class="grid" id="cards"></div>
+<div id="off-services"></div>
+<div class="warnbox" id="warnings"></div>
+
+<details id="settings-panel">
+  <summary>設定</summary>
+  <div class="form">
+    <label for="interval">取得間隔（分）</label>
+    <input type="number" id="interval" min="15" step="1">
+    <label for="warn">警告しきい値（%）</label>
+    <input type="number" id="warn" min="1" max="100">
+    <label for="danger">危険しきい値（%）</label>
+    <input type="number" id="danger" min="1" max="100">
+    <label for="notifyth">通知しきい値（%）</label>
+    <input type="number" id="notifyth" min="1" max="100">
+    <span></span>
+    <button id="save">保存</button>
+  </div>
+  <div class="form-block">
+    <h3>サービス表示</h3>
+    <div id="services-manage"></div>
+    <p class="muted" style="font-size:11px;margin:8px 0 0">OFF にしたサービスはカードを隠し、下部に「無効化中」チップとして表示します。切り替えた時点で設定ファイルに反映され、次回の取得から対象外になります。</p>
+  </div>
+  <div class="form-block">
+    <h3>レイアウト</h3>
+    <div class="density-opts">
+      <label><input type="radio" name="density" value="comfortable"> 標準</label>
+      <label><input type="radio" name="density" value="compact"> コンパクト</label>
+    </div>
+    <p class="muted" style="font-size:11px;margin:8px 0 0">コンパクトはカード間隔・バー・グラフを詰めて表示します。</p>
+  </div>
+  <p class="muted" id="settings-note"></p>
+</details>
+
+<script>
+console.log("[AI Quota Viewer] script loaded v7");
+const SERVICE_LABEL = {
+  claude:"Claude", codex:"Codex", grok:"Grok", cursor:"Cursor",
+  opencode:"OpenCode Go", qwencloud:"QwenCloud", gemini:"Gemini API",
+  antigravity:"Antigravity CLI",
+};
+let state = null, history = {};
+let refreshBusy = false;
+// ★UI(HTML)の版を初回ロード時に記録し、変わったら自動リロードするための控え（2026-09-13）
+let UI_VERSION_SEEN = null;
+
+const fmt = n => (n===null||n===undefined) ? "—" : (Math.round(n*10)/10);
+const money = (v,c) => v===null||v===undefined ? null : (c==="USD"?"$":"") + v.toFixed(2);
+
+// 為替は config/pricing.json の fx.usd_jpy を使う（収集時に自動更新）。未設定なら円換算を出さない（推測しない）。
+let FX = null, FX_DATE = null, FX_SOURCE = null;
+const yen = v => (Number.isFinite(FX) && Number.isFinite(v))
+  ? "¥" + Math.round(v * FX).toLocaleString("ja-JP") : null;
+/** USD表記に円換算を添える（単一値用） */
+const moneyBoth = (v,c) => {
+  const usd = money(v,c);
+  if(usd === null) return null;
+  const j = yen(v);
+  return j ? `${usd} <span class="muted" style="font-weight:400">≒ ${j}</span>` : usd;
+};
+
+/** バー色の共通仕様（設定しきい値には依存しない固定判定）:
+    0%〜50% → 青(accent)、50%超〜80%以下 → 黄(warn)、80%超 → 赤(danger)。
+    表示(fmt)と同じ小数1桁丸めで比較し、表示と色の食い違いを防ぐ */
+function barSev(p){
+  if(!Number.isFinite(p)) return "blue";
+  const v = Math.round(p*10)/10;
+  if(v > 80) return "danger";
+  if(v > 50) return "warn";
+  return "blue";
+}
+
+/** ゲージの状態（判定は barSev() に一本化＝横バーと必ず同色・同閾値）:
+    0-50 安定(青) / 50超-80 警戒(黄) / 80超 臨界(赤)。
+    色・帯ワードを1テーブルで一元管理する。 */
+const GAUGE_BANDS = [
+  { sev:"blue",   color:"--accent", word:"安定" },
+  { sev:"warn",   color:"--warn",   word:"警戒" },
+  { sev:"danger", color:"--danger", word:"臨界" },
+];
+/** 引数は「使用率」（残量ではない）。barSev() が正本なので境界(50/80)の二重定義をしない */
+const gaugeBand = used => GAUGE_BANDS.find(b => b.sev === barSev(used)) ?? GAUGE_BANDS[0];
+
+/** canonical の used_percent を、全サービス共通の使用率表示へ正規化する。 */
+function percentMetric(usedPercent){
+  const used = Math.max(0, Math.min(100, Math.round(usedPercent*10)/10));
+  return {
+    used,
+    value: used,
+    label: "使用率",
+  };
+}
+
+function gaugeArc(startPercent, endPercent){
+  const point = percent => {
+    const rad = (150 + 2.4*percent) * Math.PI / 180;
+    return [60 + 51*Math.cos(rad), 60 + 51*Math.sin(rad)];
+  };
+  const [sx,sy] = point(startPercent), [ex,ey] = point(endPercent);
+  const large = endPercent-startPercent > 75 ? 1 : 0;
+  return `M${sx.toFixed(2)} ${sy.toFixed(2)} A51 51 0 ${large} 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`;
+}
+
+function gaugeScaleArcs(){
+  const parts = [[0,50,"--accent"],[50,80,"--warn"],[80,100,"--danger"]];
+  return parts.map(([start,end,color]) =>
+    `<path d="${gaugeArc(start,end)}" fill="none" stroke="var(${color})" stroke-width="5" opacity=".3"/>`
+  ).join("\n    ");
+}
+
+/** 圧力計の文字盤: 金属ベゼル＋白い盤面＋ネジ4本＋10%刻みの目盛りと 0/50/100 の数字（静的に1度だけ組み立てる） */
+const GAUGE_DIAL = (() => {
+  const at = (p, r) => {
+    const rad = (150 + 2.4*p) * Math.PI / 180;
+    return [(60 + r*Math.cos(rad)).toFixed(2), (60 + r*Math.sin(rad)).toFixed(2)];
+  };
+  const ticks = [];
+  for(let p = 0; p <= 100; p += 5){
+    const major = p % 50 === 0, mid = p % 10 === 0;
+    const [x1,y1] = at(p, 41), [x2,y2] = at(p, major ? 47 : mid ? 45.5 : 44);
+    ticks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--navy)"
+      stroke-width="${major ? 1.6 : mid ? 1 : .6}"/>`);
+  }
+  const nums = [0,50,100].map(p => {
+    const [x,y] = at(p, 33);
+    return `<text x="${x}" y="${(Number(y)+2.5).toFixed(2)}" text-anchor="middle" font-size="7.5"
+      fill="var(--navy)" style="font-family:var(--mono)">${p}</text>`;
+  });
+  const screws = [45,135,225,315].map(d => {
+    const r = d * Math.PI / 180;
+    return `<circle cx="${(60+56*Math.cos(r)).toFixed(2)}" cy="${(60+56*Math.sin(r)).toFixed(2)}" r="1.3" fill="#5f7ea4"/>`;
+  });
+  return `<circle cx="60" cy="60" r="59" fill="#7f96b3"/>
+    <circle cx="60" cy="60" r="57.5" fill="#dbe4ef"/>
+    <circle cx="60" cy="60" r="54" fill="#ffffff" stroke="#9fb3cb" stroke-width=".8"/>
+    ${screws.join("")}
+    ${ticks.join("")}
+    ${nums.join("")}`;
+})();
+
+function ago(iso, now){
+  if(!iso) return null;
+  const secs = Math.floor((now - new Date(iso)) / 1000);
+  if(secs < 0) return "直前";
+  if(secs < 60) return secs + "秒前";
+  const mins = Math.floor(secs / 60);
+  if(mins < 60) return mins + "分前";
+  const h = Math.floor(mins/60);
+  if(h < 24) return h + "時間前";
+  return Math.floor(h/24) + "日前";
+}
+
+/** スナップショット群から最も新しい fetched_at を返す */
+function latestFetchedAt(snapshots){
+  const times = (snapshots ?? [])
+    .map(s => s?.fetched_at)
+    .filter(Boolean)
+    .map(t => ({ t, ms: Date.parse(t) }))
+    .filter(x => Number.isFinite(x.ms));
+  if(!times.length) return null;
+  times.sort((a,b) => b.ms - a.ms);
+  return times[0].t;
+}
+
+function until(iso, now){
+  if(!iso) return "リセット時刻不明";
+  const resetAt = new Date(iso);
+  if(!Number.isFinite(resetAt.getTime())) return "リセット時刻不明";
+  const ms = resetAt - now;
+  if(ms <= 0) return "まもなくリセット";
+  const m = Math.floor(ms/60000), h = Math.floor(m/60), d = Math.floor(h/24);
+  if(d > 0) return `${d}日${h%24}時間後にリセット`;
+  if(h > 0) return `${h}時間${m%60}分後にリセット`;
+  return `${m}分後にリセット`;
+}
+
+const JST_RESET_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+const esc = s => s == null ? "" : String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+function resetAtJst(iso){
+
+  if(!iso) return "";
+  const resetAt = new Date(iso);
+  if(!Number.isFinite(resetAt.getTime())) return "";
+  const parts = JST_RESET_FORMATTER.formatToParts(resetAt);
+  const value = type => parts.find(part => part.type === type)?.value ?? "";
+  return `${value("month")}/${value("day")} ${value("hour")}:${value("minute")} JST`;
+}
+
+function sparkline(points){
+  if(!points || points.length < 2) return "";
+  const w = 300, h = 38, max = 100;
+  const step = w / (points.length - 1);
+  const d = points.map((p,i) => `${i===0?"M":"L"}${(i*step).toFixed(1)},${(h - (p/max)*h).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`;
+}
+
+/** 共通フィード（src/feed.mjs が作る quota-feed/1）の該当サービス。
+    ★画面も他システム（外部連携ツール）と同じ解釈で描く（2026-09-26）。
+    Grok 旧形式の合算・codex_bengalfox の除外・律速枠の選定はフィード側に一本化した。 */
+function feedOf(svc){
+  return state?.feed?.services?.find(s => s.id === svc) ?? null;
+}
+
+/** 使用率ゲージの律速枠 = フィードの headline（表示枠の最大。枠が無ければ支出枠） */
+function pickGaugeSource(snap){
+  const h = feedOf(snap.service)?.headline;
+  if(!h || !Number.isFinite(h.used_percent)) return null;
+  return { limit: { label: h.limit_label }, w: { label: h.label, used_percent: h.used_percent, resets_at: h.resets_at } };
+}
+
+/** サービスごとの直前ゲージ値（innerHTML 全置換でも transition が効くよう初期値に使う） */
+const lastGauge = {};
+
+/** レート制限ゲージ。全サービスを canonical の used_percent（使用率）で表示・判定する。 */
+function gaugeHtml(snap, now){
+  const src = pickGaugeSource(snap);
+  if(!src) return "";
+  const metric = percentMetric(src.w.used_percent);
+  const band = gaugeBand(metric.used);
+  const prev = Number.isFinite(lastGauge[snap.service]) ? lastGauge[snap.service] : 0;
+  const frame = [src.limit.label ?? "", src.w.label ?? ""].filter(Boolean).join(" · ");
+  const off = 100 - prev;
+  const deg = 2.4*prev - 120;
+  const sev = `var(${band.color})`;
+  const scaleArcs = gaugeScaleArcs();
+  return `<div class="gauge-wrap" role="meter" aria-label="${metric.label}" aria-valuemin="0" aria-valuemax="100"
+    aria-valuenow="${metric.value}" aria-valuetext="${metric.label} ${metric.value}% ${band.word} · ${frame} · ${until(src.w.resets_at, now)}">
+  <svg class="gauge" viewBox="0 0 120 120" aria-hidden="true" focusable="false"
+       data-value="${metric.value}" data-svc="${snap.service}">
+    ${GAUGE_DIAL}
+    ${scaleArcs}
+    <path class="arc-val" d="M15.83 85.50 A51 51 0 1 1 104.17 85.50" fill="none"
+      stroke="${sev}" stroke-width="5" pathLength="100" stroke-dasharray="100"
+      style="stroke-dashoffset:${off}"/>
+    <!-- 数値の窓（機械式カウンタ風） -->
+    <rect x="40" y="77" width="40" height="16" rx="2" fill="var(--navy2)" stroke="#7f96b3" stroke-width="1"/>
+    <text x="60" y="89" text-anchor="middle" font-size="11.5"
+      fill="#e8f2ff" style="font-family:var(--mono);font-variant-numeric:tabular-nums">${metric.value}<tspan font-size="7.5">%</tspan></text>
+    <g class="needle" style="transform:rotate(${deg}deg)">
+      <path d="M60 17 L61.8 64 L58.2 64 Z" fill="var(--navy)"/>
+      <path d="M60 17 L60.9 27 L59.1 27 Z" fill="var(--danger)"/>
+    </g>
+    <circle cx="60" cy="60" r="5.5" fill="#9fb3cb" stroke="var(--navy)" stroke-width="1.6"/>
+    <circle cx="60" cy="60" r="1.8" fill="#fff"/>
+  </svg>
+  <div class="gauge-cap">
+    <div class="lbl">${metric.label}</div>
+    <div class="word" style="color:${sev}">${band.word}</div>
+    <div class="frame">${frame}</div>
+    <div class="rst">${until(src.w.resets_at, now)}</div>
+  </div>
+</div>`;
+}
+
+/** innerHTML 全置換後に rAF で目標値へ流し込む（初期値=前回値で描いたため transition が発火する）。
+    値が変わらない再描画では前回値＝目標値なので針は動かない。 */
+function applyGaugeTargets(){
+  document.querySelectorAll("#cards .gauge[data-value]").forEach(svg => {
+    const value = Number(svg.dataset.value);
+    if(!Number.isFinite(value)) return;
+    const arc = svg.querySelector(".arc-val");
+    const needle = svg.querySelector(".needle");
+    if(arc) arc.style.strokeDashoffset = String(100 - value);
+    if(needle) needle.style.transform = `rotate(${2.4*value - 120}deg)`;
+    lastGauge[svg.dataset.svc] = value;
+  });
+}
+
+/** 表示/非表示トグルスイッチのHTML。checked は設定の services[svc] から常に取る（連動の正本） */
+function switchHtml(svc, name){
+  const on = state?.settings?.services?.[svc] !== false;
+  return `<label class="switch" title="${name}を表示">
+    <input type="checkbox" data-svc="${svc}" ${on ? "checked" : ""} aria-label="${name}の表示切り替え">
+    <span class="track" aria-hidden="true"><span class="knob"></span></span>
+  </label>`;
+}
+
+/** 本社所在国トーン（カード背景）: US系は薄い青、中国系は薄い赤 */
+const COUNTRY = { claude:"us", codex:"us", grok:"us", opencode:"cn", qwencloud:"cn", gemini:"us", antigravity:"us" };
+const countryCls = svc => COUNTRY[svc] ? ` country-${COUNTRY[svc]}` : "";
+
+function renderCard(snap, now, pricing){
+  const name = SERVICE_LABEL[snap.service] ?? snap.service;
+
+  if(!snap.ok){
+    return `<div class="card${countryCls(snap.service)}">
+      <h2>${name} <span class="badge err">取得失敗</span>
+        ${switchHtml(snap.service, name)}</h2>
+      <p class="muted">${snap.error ?? "unknown"}</p>
+      <p class="muted">${snap.error === "not-collected-yet"
+        ? "まだ収集していません。「今すぐ更新」を押してください。"
+        : "他サービスの表示には影響していません。"}</p>
+    </div>`;
+  }
+
+  const staleMin = snap.fetched_at ? Math.floor((now - new Date(snap.fetched_at))/60000) : 999;
+  const staleBadge = staleMin > 30 ? `<span class="badge stale">情報が古い</span>` : "";
+
+  const windows = feedOf(snap.service)?.windows ?? [];
+  let rows = "";
+  {
+    for(const w of windows){
+      const metric = Number.isFinite(w.used_percent)
+        ? percentMetric(w.used_percent)
+        : { used:0, value:0, label:"使用率" };
+      const sev = barSev(metric.used);
+      const resetAt = resetAtJst(w.resets_at);
+      const capNote = w.limit_amount === null ? ""
+        : w.used_amount !== null
+          ? `${w.used_amount.toLocaleString("ja-JP")} / ${w.limit_amount.toLocaleString("ja-JP")}`
+          : `上限 ${w.limit_amount.toLocaleString("ja-JP")}`;
+      const rowMeta = [
+        resetAt ? `予定 ${resetAt}` : "",
+        capNote,
+      ].filter(Boolean).join(" · ");
+      rows += `<div class="row">
+        <div class="label">
+          <span class="name">${esc(w.limit_label)} · ${esc(w.label ?? "")}</span>
+          <span class="val">${fmt(metric.value)}%</span>
+        </div>
+        <div class="bar ${sev}" role="progressbar" aria-label="${esc(metric.label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${metric.value}"><i style="width:${metric.value}%"></i></div>
+        <div class="sub"><span>${until(w.resets_at, now)}</span>
+
+          <span class="reset-at">${rowMeta}</span></div>
+      </div>`;
+    }
+  }
+  if(!rows){
+    // ★空の理由はサービスで違う。Gemini/Antigravity は「使用実績が無い」だけで
+    //   取得失敗ではないので、失敗と誤解させる文言にしない。
+    const reason = snap.service === "codex"
+      ? "表示可能な週次レート制限を取得できません"
+      : (snap.service === "gemini" || snap.service === "antigravity")
+        ? "表示できる枠がありません（この期間の使用実績なし）"
+        : "利用率の枠なし（このサービスは金額ベース）";
+    rows = `<p class="none">${reason}</p>`;
+  }
+
+  // 上限値が非公開なことは行ごとに繰り返さず、カード単位の注記にまとめる
+  const allNoCap = windows.length > 0 && windows.every(w => w.limit_amount === null);
+  if(allNoCap) rows += `<p class="sub" style="margin-top:10px">※ このサービスは枠の上限値を公開しておらず、取得できるのは % のみです。</p>`;
+
+  let spend = "";
+  if(snap.spend){
+    const s = snap.spend, c = s.currency ?? "";
+    const unit = pricing?.services?.[snap.service]?.unit_price_jpy;
+    const pctSev = barSev(s.used_percent);
+    spend = `<div class="spend">
+      <div class="kv"><span class="k">クレジット / 消費</span><span class="v">${money(s.used_amount,c) ?? "—"}${
+        s.limit_amount !== null ? " / " + money(s.limit_amount,c) : ""}${
+        yen(s.used_amount) ? `<br><span class="muted" style="font-weight:400">≒ ${yen(s.used_amount)}${
+          s.limit_amount !== null ? " / " + yen(s.limit_amount) : ""}</span>` : ""}</span></div>
+      ${Number.isFinite(s.used_percent) ? `<div class="bar ${pctSev}" role="progressbar" aria-label="使用率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(s.used_percent*10)/10}" style="margin-top:6px"><i style="width:${Math.min(100,s.used_percent)}%"></i></div>
+      <div class="sub"><span>${fmt(s.used_percent)}% 使用</span><span>${until(s.resets_at, now)}</span></div>` : ""}
+      <div class="kv"><span class="k">保有残高</span><span class="v">${
+        s.balance === null ? '<span class="none">非公開</span>' : moneyBoth(s.balance,c)}</span></div>
+      <div class="kv"><span class="k">上限</span><span class="v">${
+        s.limit_amount === null ? '<span class="none">非公開</span>' : moneyBoth(s.limit_amount,c)}</span></div>
+      <div class="kv"><span class="k">クレジット単価</span><span class="v">${
+        Number.isFinite(unit) ? unit.toLocaleString("ja-JP") + " 円" : '<span class="none">未設定</span>'}</span></div>
+      <div class="kv"><span class="k">自動チャージ</span><span class="v">${
+        s.auto_recharge === null ? "—" : (s.auto_recharge ? "オン" : "オフ")}</span></div>
+    </div>`;
+  } else {
+    spend = `<div class="spend"><div class="kv"><span class="k">クレジット</span>
+      <span class="v none">該当なし</span></div></div>`;
+  }
+
+  const hist = (history[snap.service] ?? []).map(h => {
+    const vals = Object.values(h.series);
+    return vals.length ? Math.max(...vals) : null;
+  }).filter(v => v !== null);
+
+  return `<div class="card${countryCls(snap.service)}">
+    <h2>${esc(name)} <span class="plan">${esc(snap.plan ?? "")}</span> ${staleBadge}
+      ${switchHtml(snap.service, name)}</h2>
+
+    ${gaugeHtml(snap, now)}
+    ${rows}
+    ${spend}
+    ${sparkline(hist.slice(-60))}
+    <div class="foot">
+      <span>取得: ${ago(snap.fetched_at, now) ?? "—"}</span>
+      <span>${snap.source_updated_at ? "提供元集計: " + ago(snap.source_updated_at, now) : "source: " + snap.source}</span>
+    </div>
+  </div>`;
+}
+
+function setWarnings(html, { ok = false } = {}){
+  const el = document.getElementById("warnings");
+  el.classList.toggle("ok", ok);
+  el.innerHTML = html;
+}
+
+/** 表示順（settings.layout.order があれば従う。無ければ services 定義順） */
+function orderedServices(services, order){
+  const keys = Object.keys(services ?? {});
+  const ord = (order ?? []).filter(k => keys.includes(k));
+  const rest = keys.filter(k => !ord.includes(k));
+  return [...ord, ...rest];
+}
+
+/** OFF 中のサービスを「無効化中」チップとして下部に出す */
+function renderOffChips(services){
+  const el = document.getElementById("off-services");
+  const off = Object.keys(services ?? {}).filter(k => services[k] === false);
+  if(off.length === 0){ el.innerHTML = ""; return; }
+  el.innerHTML = '<div class="offrow"><span class="offnote">無効化中:</span>' +
+    off.map(k => `<span class="chip"><span class="dot"></span>${esc(SERVICE_LABEL[k] ?? k)}</span>`).join("") +
+    '</div>';
+
+}
+
+/** 為替 7日グラフ。線=ECB日次（参考）、点=円換算に実際に使った値（出典が違うので線でつながない） */
+let fxHist = null;
+function renderFx(now){
+  const svg = document.getElementById("fx-chart");
+  if(!svg) return;
+  const W = 172, H = 54, PAD_L = 24, PAD_R = 3, PAD_Y = 6;
+  const t1 = now.getTime(), t0 = t1 - 7 * 86_400_000;
+  // ECB 日次は中欧 16:00（≒14:00 UTC）時点の参照レート
+  const ecb = (fxHist?.ecb ?? []).map(p => ({ t: Date.parse(p.d + "T14:00:00Z"), v: p.v, label: `${p.d} ECB` }))
+    .filter(p => Number.isFinite(p.t) && p.t >= t0 - 86_400_000);
+  const live = (fxHist?.live ?? []).map(p => ({ t: Date.parse(p.t), v: p.v, label: `${new Date(p.t).toLocaleString("ja-JP")} ${p.source ?? ""}` }))
+    .filter(p => Number.isFinite(p.t) && p.t >= t0);
+  const cur = Number.isFinite(FX) ? FX : null;
+  document.getElementById("fx-now").textContent = cur === null ? "---.--" : cur.toFixed(2);
+
+  const all = [...ecb, ...live].map(p => p.v);
+  if(cur !== null) all.push(cur);
+  const deltaEl = document.getElementById("fx-delta");
+  if(all.length < 2){
+    svg.innerHTML = `<text x="${W/2}" y="${H/2+3}" text-anchor="middle" font-size="9" fill="#6f8db3" style="font-family:var(--mono)">データ収集中…</text>`;
+    deltaEl.textContent = ""; deltaEl.className = "fxp-delta";
+    document.getElementById("fx-sub").textContent = "";
+    return;
+  }
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if(hi - lo < 0.5){ const m = (hi + lo) / 2; lo = m - 0.25; hi = m + 0.25; }
+  const x = t => PAD_L + (Math.min(Math.max(t, t0), t1) - t0) / (t1 - t0) * (W - PAD_L - PAD_R);
+  const y = v => PAD_Y + (hi - v) / (hi - lo) * (H - PAD_Y * 2);
+
+  const grid = [];
+  for(let i = 0; i <= 7; i++){
+    const gx = (PAD_L + i * (W - PAD_L - PAD_R) / 7).toFixed(1);
+    grid.push(`<line x1="${gx}" y1="${PAD_Y}" x2="${gx}" y2="${H - PAD_Y}" stroke="#4fb3ff" stroke-opacity=".12" stroke-width=".6"/>`);
+  }
+  const ecbPath = ecb.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  svg.innerHTML = `
+    ${grid.join("")}
+    <line x1="${PAD_L}" y1="${PAD_Y}" x2="${W - PAD_R}" y2="${PAD_Y}" stroke="#4fb3ff" stroke-opacity=".18" stroke-width=".6"/>
+    <line x1="${PAD_L}" y1="${H - PAD_Y}" x2="${W - PAD_R}" y2="${H - PAD_Y}" stroke="#4fb3ff" stroke-opacity=".18" stroke-width=".6"/>
+    <text x="${PAD_L - 3}" y="${PAD_Y + 3}" text-anchor="end" font-size="7.5" fill="#8fb2d9" style="font-family:var(--mono)">${hi.toFixed(1)}</text>
+    <text x="${PAD_L - 3}" y="${H - PAD_Y + 2}" text-anchor="end" font-size="7.5" fill="#8fb2d9" style="font-family:var(--mono)">${lo.toFixed(1)}</text>
+    ${ecbPath ? `<path d="${ecbPath}" fill="none" stroke="#4fb3ff" stroke-width="1.4" stroke-linejoin="round" style="filter:drop-shadow(0 0 2px rgba(79,179,255,.8))"/>` : ""}
+    ${ecb.map(p => `<rect x="${(x(p.t) - 1.3).toFixed(1)}" y="${(y(p.v) - 1.3).toFixed(1)}" width="2.6" height="2.6" fill="#4fb3ff"><title>${esc(p.label)} ${p.v.toFixed(2)}円</title></rect>`).join("")}
+    ${live.map(p => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="1.7" fill="#ffd27a"><title>${esc(p.label)} ${p.v.toFixed(2)}円（換算に使用）</title></circle>`).join("")}`;
+
+  // 7日前比: 基準は窓内で一番古い値（ECB 優先）。円安（数値↑）= ドル建て請求が高くなる
+  const base = (ecb.find(p => p.t >= t0) ?? ecb[0] ?? live[0])?.v;
+  if(cur !== null && Number.isFinite(base)){
+    const d = cur - base, pct = d / base * 100;
+    deltaEl.textContent = `${d >= 0 ? "▲" : "▼"}${Math.abs(d).toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)`;
+    deltaEl.className = "fxp-delta " + (d > 0 ? "up" : d < 0 ? "down" : "");
+    deltaEl.title = "7日前比。▲は円安（ドル建ての月額が円で高くなる）";
+  }
+  document.getElementById("fx-sub").innerHTML =
+    `<span class="k-line">ECB日次（参考）</span><span class="k-dot">換算に使用</span>`;
+}
+
+/** RunPod クレジット残高（LLM とは別枠）。失敗時は最後に取れた残高を「古い」と明示して残す */
+let runpodData = null;
+function renderRunpod(now){
+  const valEl = document.getElementById("rp-val");
+  if(!valEl) return;
+  const l = runpodData?.latest;
+  const yenEl = document.getElementById("rp-yen"), rateEl = document.getElementById("rp-rate"), sub = document.getElementById("rp-sub");
+  const has = Number.isFinite(l?.balance_usd);
+  valEl.textContent = has ? l.balance_usd.toFixed(2) : (l?.error === "login-required" ? "未ログイン" : l ? "取得失敗" : "未取得");
+  valEl.classList.toggle("err", !has);
+  yenEl.textContent = has && Number.isFinite(FX) ? `≒¥${Math.round(l.balance_usd * FX).toLocaleString("ja-JP")}` : "";
+  // 消費レート: ボリューム保管だけでも数セント/hr かかる。$0.10/hr 以上は GPU Pod 稼働の可能性が高いので強調
+  const rate = l?.spend_per_hr_usd;
+  const hours = l?.hours_left;
+  const left = Number.isFinite(hours) ? ` · 残り約${hours >= 48 ? Math.round(hours / 24) + "日" : Math.round(hours) + "時間"}` : "";
+  // 表示は円（為替未設定のときだけ $ のまま）。1円未満も読めるよう小数1桁、10円以上は整数
+  const rateText = !Number.isFinite(rate) ? ""
+    : Number.isFinite(FX)
+      ? (y => `消費 ¥${y < 10 ? y.toFixed(1) : Math.round(y).toLocaleString("ja-JP")}/時`)(rate * FX)
+      : `消費 $${rate < 1 ? rate.toFixed(3) : rate.toFixed(2)}/hr`;
+  rateEl.textContent = rateText ? rateText + left : "";
+  rateEl.className = rate >= 0.1 ? "run" : "";
+  rateEl.title = rate >= 0.1 ? "消費レートが高め＝GPU Pod が稼働中の可能性" : "";
+
+  const parts = [];
+  if(!l){
+    parts.push("次の収集で取得します");
+  } else if(l.error === "login-required"){
+    parts.push("収集用ブラウザで RunPod にログインが必要（node src/index.mjs login）");
+  } else if(!l.ok){
+    parts.push(`<span class="stale">取得失敗（${l.error}）${l.last_ok_at ? `・表示は ${ago(l.last_ok_at, now)} の値` : ""}</span>`);
+  } else {
+    parts.push(`取得 ${ago(l.fetched_at, now) ?? "—"}`);
+  }
+  // 7日の増減（簡易ログから）
+  const h = runpodData?.history ?? [];
+  if(has && h.length >= 2){
+    const d = l.balance_usd - h[0].v;
+    parts.push(`7日 ${d >= 0 ? "+" : "−"}${Number.isFinite(FX)
+      ? "¥" + Math.round(Math.abs(d) * FX).toLocaleString("ja-JP")
+      : "$" + Math.abs(d).toFixed(2)}`);
+  }
+  sub.innerHTML = parts.map(p => `<span>${p}</span>`).join("");
+}
+
+/** 1件の月額を円に直す。USD建てで為替が無ければ null（不完全な数字を出さない） */
+function subJpy(v){
+  if(Number.isFinite(v.subscription_monthly_jpy)) return v.subscription_monthly_jpy;
+  if(Number.isFinite(v.subscription_monthly_usd)) return Number.isFinite(FX) ? v.subscription_monthly_usd * FX : null;
+  return null;
+}
+const isPriced = v => Number.isFinite(v.subscription_monthly_usd) || Number.isFinite(v.subscription_monthly_jpy);
+const yenStr = n => "¥" + Math.round(n).toLocaleString("ja-JP");
+
+/** 予約済みのプラン変更（例: Claude 10/23 に Max 5x へ）。発効前のものだけ返す */
+function pendingChange(v, now){
+  const c = v.scheduled_change;
+  if(!c?.effective) return null;
+  const eff = new Date(c.effective + "T00:00:00+09:00");
+  if(!Number.isFinite(eff.getTime()) || eff <= now) return null;
+  const jpy = Number.isFinite(c.monthly_jpy) ? c.monthly_jpy
+    : Number.isFinite(c.monthly_usd) && Number.isFinite(FX) ? c.monthly_usd * FX : null;
+  return { ...c, eff, jpy };
+}
+
+function renderSubtotal(now){
+  const valEl = document.getElementById("subtotal-val");
+  if(!valEl) return;
+  const entries = Object.entries(state.pricing?.services ?? {})
+    .filter(([, v]) => v && v.subscription_active !== false)
+    .filter(([, v]) => v.subscription_monthly_usd !== undefined || v.subscription_monthly_jpy !== undefined);
+  const priced = entries.filter(([, v]) => isPriced(v));
+  const unset = entries.filter(([, v]) => !isPriced(v));
+  const billed = priced.filter(([, v]) => (v.subscription_monthly_jpy ?? v.subscription_monthly_usd) > 0);
+  const free = priced.filter(([, v]) => !((v.subscription_monthly_jpy ?? v.subscription_monthly_usd) > 0));
+  // ★合計と「次の月額」はフィード（src/feed.mjs の subscriptionsOf）の値を使う＝他システムと同じ数字
+  const subs = state?.feed?.subscriptions;
+  const total = Number.isFinite(subs?.monthly_total_jpy) ? subs.monthly_total_jpy : null;
+
+  // 7セグ表示。消灯セグメントは点灯値と同じ桁数・同じ位置のカンマで作る
+  const ghostEl = document.getElementById("subtotal-ghost");
+  if(total === null){
+    valEl.textContent = "為替未設定";
+    valEl.classList.add("err");
+    ghostEl.textContent = "88,888";
+  } else {
+    const s = total.toLocaleString("ja-JP");
+    valEl.textContent = s;
+    valEl.classList.remove("err");
+    ghostEl.textContent = s.replace(/\d/g, "8");
+  }
+
+  // 予約済みの変更を反映した「次の月額」
+  let nextNote = "";
+  if(subs?.next && Number.isFinite(subs.next.monthly_total_jpy)){
+    const [, m, d] = subs.next.effective.split("-").map(Number);
+    nextNote = `<span class="next">${m}/${d}〜 ${yenStr(subs.next.monthly_total_jpy)}</span>`;
+  }
+  document.getElementById("subtotal-sub").innerHTML =
+    `<span>契約 ${billed.length}件${free.length ? `・無料枠 ${free.length}件` : ""}${unset.length ? `・未設定 ${unset.length}件` : ""}</span>` +
+    nextNote;
+
+  // 内訳の銘板（金額の大きい順）
+  const rows = [...priced].sort((a, b) => (subJpy(b[1]) ?? 0) - (subJpy(a[1]) ?? 0)).map(([k, v]) => {
+    const jpy = subJpy(v);
+    const raw = Number.isFinite(v.subscription_monthly_jpy) ? "" : `$${v.subscription_monthly_usd}`;
+    const c = pendingChange(v, now);
+    const chg = c ? `<span class="chg">→ ${c.eff.getMonth() + 1}/${c.eff.getDate()} ${c.plan ?? ""} ${c.jpy !== null ? yenStr(c.jpy) : ""}</span>` : "";
+    return `<span class="readout" title="${(v.monthly_price_note ?? "").replace(/"/g, "&quot;")}">
+      <span class="svc">${esc(SERVICE_LABEL[k] ?? k)}</span><span class="pl">${esc(v.plan ?? "")}</span>
+      <span class="amt">${jpy === null ? "—" : yenStr(jpy)}</span>${raw ? `<span class="raw">${raw}</span>` : ""}${chg}</span>`;
+  });
+  const unsetRows = unset.map(([k, v]) => `<span class="readout unset" title="config/pricing.json の subscription_monthly_usd / _jpy を実測値で埋めると合計に入る">
+      <span class="svc">${esc(SERVICE_LABEL[k] ?? k)}</span><span class="pl">${esc(v.plan ?? "")}</span><span class="amt">未設定</span></span>`);
+
+  document.getElementById("sub-breakdown").innerHTML = rows.concat(unsetRows).join("");
+}
+
+function render(){
+  if(!state) return;
+  const now = new Date();
+  const services = state.settings.services ?? {};
+  const order = state.settings.layout?.order ?? [];
+  const dense = state.settings.layout?.density === "compact";
+  document.body.classList.toggle("compact", dense);
+
+  const snapByService = {};
+  for(const s of state.snapshots) snapByService[s.service] = s;
+
+  const html = [];
+  for(const key of orderedServices(services, order)){
+    if(services[key] === false) continue;
+    const snap = snapByService[key];
+    if(snap) html.push(renderCard(snap, now, state.pricing));
+  }
+  document.getElementById("cards").innerHTML = html.join("");
+  // ★ゲージの transition を効かせるため、初期値=前回値で描いた SVG を rAF で目標値へ差し替える
+  requestAnimationFrame(() => applyGaugeTargets());
+  renderOffChips(services);
+  const fxNote = Number.isFinite(FX)
+    ? ` ／ 為替 1USD=${FX}円（${FX_DATE ?? "日付不明"}時点・${FX_SOURCE ?? "推定"}）`
+    : " ／ 為替未設定のため円換算なし";
+  // ★「最終描画」だと30秒タイマーでも時計が進み、更新したように見えて紛らわしい。
+  //   データ上の最新 fetched_at を出す。
+  const fetched = latestFetchedAt(state.snapshots);
+  const fetchedLabel = fetched
+    ? `最終取得 ${new Date(fetched).toLocaleTimeString()}（${ago(fetched, now)}）`
+    : "最終取得 —";
+  document.getElementById("updated").textContent =
+    fetchedLabel +
+    " ／ 取得間隔 " + state.settings.collect_interval_minutes + "分" + fxNote;
+  updateLamp(fetched, now);
+
+  // ★契約サブスクの月額合計（2026-09-13 追加 / 2026-09-24 7セグ計器＋内訳＋予約済み変更）。
+  //   **日本円に統一**して合計する。USD建ては fx.usd_jpy で円換算、JPY建てはそのまま加算。
+  //   未確認(null)は合計に含めず件数で明示する（推測値を出さない規約。無料枠は 0 として確認済み扱い）。
+  //   subscription_active=false は「契約していない」＝合計にも未設定件数にも数えない。
+  renderSubtotal(now);
+  renderFx(now);
+  renderRunpod(now);
+
+  // ★設定パネルのスイッチを state から同期する（カード横のスイッチ操作の結果を反映。
+  //   再生成はせず checked だけ上書きするので、操作中のフォーカスも保たれる）
+  document.querySelectorAll("#services-manage input[data-svc]").forEach(cb => {
+    cb.checked = (state.settings.services[cb.dataset.svc] !== false);
+  });
+}
+
+/** サービスON/OFFチェックボックス＋並び順ボタンを描画 */
+function renderServiceControls(services, order){
+  const el = document.getElementById("services-manage");
+  const keys = orderedServices(services, order);
+  el.innerHTML = keys.map(k => {
+    const label = SERVICE_LABEL[k] ?? k;
+    const idx = keys.indexOf(k);
+    return `<div class="svc-row">
+      <span class="svc-name">${esc(label)}</span>
+      ${switchHtml(k, label)}
+
+      <span class="move">
+        <button type="button" data-move="${k}" data-dir="up" title="上へ移動" ${idx === 0 ? "disabled" : ""}>▲</button>
+        <button type="button" data-move="${k}" data-dir="down" title="下へ移動" ${idx === keys.length - 1 ? "disabled" : ""}>▼</button>
+      </span>
+    </div>`;
+  }).join("");
+
+  el.querySelectorAll("button[data-move]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const svc = btn.dataset.move;
+      const dir = btn.dataset.dir;
+      const order = (state.settings.layout?.order ?? []).slice();
+      if(!order.includes(svc)) order.push(...Object.keys(state.settings.services).filter(k => !order.includes(k)));
+      const i = order.indexOf(svc);
+      const j = dir === "up" ? i - 1 : i + 1;
+      if(i < 0 || j < 0 || j >= order.length) return;
+      [order[i], order[j]] = [order[j], order[i]];
+      state.settings.layout.order = order;
+      renderServiceControls(state.settings.services, order);
+      persistLayout(); // ★並び順も即時永続化: load() で元の順序に戻らないように
+    });
+  });
+}
+
+// ★密度ラジオは #settings-panel 配下にあるので、document 委譲で一元処理する
+//   （#services-manage 配下を探していた旧実装ではリスナーが付かず、切り替えが反映されなかった）
+document.addEventListener("change", (e) => {
+  if(e.target.matches("input[name=density]")){
+    state.settings.layout.density = e.target.value;
+    render();
+    persistLayout(); // 即時保存: リロードしても解除されないように
+  }
+});
+
+/** 表示設定（レイアウト）だけを即座に永続化する。
+    保存ボタンを押さずにリロードされても、コンパクト等が解除されないための経路。 */
+async function persistLayout(){
+  try{
+    const r = await fetch("/api/settings", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({ layout: state.settings.layout }),
+    });
+    if(!r.ok) setWarnings("⚠ 表示設定の保存に失敗しました。");
+  } catch {
+    setWarnings("⚠ 表示設定の保存に失敗しました。");
+  }
+}
+
+/** 表示/非表示トグルだけを即座に永続化する。
+    保存ボタンを押さずに「今すぐ更新」や5分おきの再読込が走っても、
+    非表示設定が復活しないための経路（密度ラジオと同じ扱い）。 */
+async function persistServices(){
+  try{
+    const r = await fetch("/api/settings", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({ services: state.settings.services }),
+    });
+    if(!r.ok) setWarnings("⚠ 表示設定の保存に失敗しました。");
+  } catch {
+    setWarnings("⚠ 表示設定の保存に失敗しました。");
+  }
+}
+
+/** 表示/非表示スイッチ（カード横・設定パネル両方）を一元処理する。
+    どちらを操作しても同じ state を更新し render() で両方へ連動する。
+    ★即時永続化: 「今すぐ更新」後の load() で隠したカードが復活しないように。 */
+document.addEventListener("change", (e) => {
+  const input = e.target.closest("input[data-svc]");
+  if(!input || !state) return;
+  const svc = input.dataset.svc;
+  state.settings.services[svc] = input.checked;
+  render();
+  persistServices();
+});
+
+/** 観測ランプ。サーバ断・定期収集の停止を画面上で必ず気づけるようにする（2026-09-24）。
+    ★Node 更新で watch が落ち、画面は古い値のまま「動いているように」見えていた事故への対処。 */
+let serverDown = false;
+function setLamp(cls, text, title = ""){
+  const el = document.getElementById("lamp");
+  // role=status（aria-live）なので、30秒ごとの再描画で同じ内容を書き直して読み上げを繰り返さない
+  if(el.className === "lamp " + cls && el.textContent === text && el.title === title) return;
+  el.className = "lamp " + cls;
+  el.textContent = text;
+  el.title = title;
+}
+function updateLamp(fetched, now){
+  if(serverDown) return;
+  if(state?.collecting || refreshBusy){ setLamp("busy", "観測中…"); return; }
+  const interval = state?.settings?.collect_interval_minutes ?? 15;
+  const ageMin = fetched ? (now - new Date(fetched)) / 60000 : Infinity;
+  // 2周期＋余裕5分を過ぎても新しい取得が無い = 定期収集(watch)が止まっている可能性
+  if(ageMin > interval * 2 + 5){
+    setLamp("stale", "定期収集 停止中？",
+      "最終取得から" + Math.round(ageMin) + "分。watch が動いていない可能性があります。" +
+      "スタートアップの AIQuotaViewer.vbs が自動で再起動します（最大約1分）。");
+    return;
+  }
+  setLamp("ok", "観測中", "定期収集は正常です");
+}
+
+let reconnectTimer = null;
+async function load(){
+  try {
+    state = await (await fetch("/api/state", { cache: "no-store" })).json();
+    history = await (await fetch("/api/history", { cache: "no-store" })).json();
+    // 為替グラフは付加情報。取れなくても画面全体は止めない
+    try { fxHist = await (await fetch("/api/fx-history", { cache: "no-store" })).json(); } catch { /* 前回値のまま */ }
+    try { runpodData = await (await fetch("/api/runpod", { cache: "no-store" })).json(); } catch { /* 前回値のまま */ }
+  } catch {
+    // サーバ断: 古い画面のまま黙らない。表示で知らせ、15秒ごとに再接続を試みる
+    serverDown = true;
+    setLamp("down", "通信途絶", "ダッシュボードのサーバに接続できません。自動で再接続を試みています。");
+    setWarnings("⚠ サーバに接続できません。自動で再接続を試みています…（表示中の値は古い可能性があります）");
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(load, 15000);
+    return;
+  }
+  if(serverDown){ serverDown = false; setWarnings("✓ サーバに再接続しました", { ok: true }); }
+  // ★UI(HTML)が更新されたら自動リロードする（2026-09-13）。
+  //   開きっぱなしのウィンドウはデータだけ更新され、HTMLは古いままになるため、
+  //   /api/state の ui_version を初回に記録し、変わったら読み直す。
+  if (state.ui_version) {
+    if (UI_VERSION_SEEN === null) UI_VERSION_SEEN = state.ui_version;
+    else if (UI_VERSION_SEEN !== state.ui_version) { location.reload(); return; }
+  }
+  FX = state.pricing?.fx?.usd_jpy ?? null;
+  FX_DATE = state.pricing?.fx?.last_verified ?? null;
+  FX_SOURCE = state.pricing?.fx?.auto ? "自動取得" : (state.pricing?.fx?.source ?? null);
+  document.getElementById("interval").value = state.settings.collect_interval_minutes;
+  document.getElementById("warn").value = state.settings.thresholds.warn;
+  document.getElementById("danger").value = state.settings.thresholds.danger;
+  document.getElementById("notifyth").value = state.settings.notify.threshold;
+  document.getElementById("settings-note").textContent =
+    `取得間隔は ${state.settings.min_interval_minutes} 分未満に設定できません（Bot検知を避けるための固定制約）。`;
+  state.settings.services ??= {};
+  state.settings.layout ??= { order: [], density: "comfortable" };
+  renderServiceControls(state.settings.services, state.settings.layout.order);
+  const densityInput = document.querySelector(`input[name=density][value="${state.settings.layout.density}"]`);
+  if(densityInput) densityInput.checked = true;
+  render();
+}
+
+document.getElementById("refresh").addEventListener("click", async (e) => {
+  console.log("[refresh] clicked");
+  if(refreshBusy) return;
+  refreshBusy = true;
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "取得中…";
+  setWarnings("");
+  setLamp("busy", "観測中…");
+  // ブラウザに「取得中…」を確実に描画させてから重い fetch を開始する
+  await new Promise(r => setTimeout(r, 50));
+  const t0 = performance.now();
+  // ★ /api/collect は広告ブロッカーに弾かれて Failed to fetch になることがあるため
+  //   中立な /api/refresh を使う（サーバー側は旧パスも互換で受け付ける）
+  const endpoint = "/api/refresh";
+  try{
+    const controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort("timeout"), 120_000) : null;
+    let res;
+    try {
+      res = await fetch(endpoint, {
+        method: "POST",
+        cache: "no-store",
+        signal: controller ? controller.signal : undefined,
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    let r = {};
+    try { r = await res.json(); } catch { /* non-json */ }
+
+    if(res.status === 409){
+      setWarnings("⚠ " + (r.message || "別の取得が進行中です。完了後に再度お試しください。"));
+      return;
+    }
+    if(!res.ok){
+      setWarnings("⚠ 取得エラー: " + (r.error || ("HTTP " + res.status)));
+      return;
+    }
+
+    // ★レスポンスの snapshots を即反映（ディスク再読込を待たない）
+    if(state && Array.isArray(r.snapshots)){
+      state.snapshots = r.snapshots;
+      render();
+    }
+    await load();
+
+    const secs = Math.max(1, Math.round((performance.now() - t0) / 1000));
+    const fetched = latestFetchedAt(r.snapshots) ?? latestFetchedAt(state?.snapshots);
+    const when = fetched ? new Date(fetched).toLocaleTimeString() : new Date().toLocaleTimeString();
+    const warnLines = (r.warnings ?? []).map(w => "⚠ " + w);
+    setWarnings(
+      [`✓ 更新完了 ${when}（${secs}秒）`, ...warnLines].join("<br>"),
+      { ok: warnLines.length === 0 }
+    );
+  } catch(err) {
+    console.error("[refresh] error:", err);
+    const name = err?.name || "";
+    const msg = String(err?.message || err || "");
+    let text;
+    if (name === "AbortError" || msg === "timeout") {
+      text = "取得がタイムアウトしました（120秒）。Chrome収集が固まっていないか確認してください。";
+    } else if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+      text = "サーバーに届きませんでした（" + msg + "）。"
+        + " uBlock 等の広告ブロッカーが通信を遮断していないか、"
+        + "またはサーバー窓が落ちていないか確認してください。"
+        + " アドレスは http://127.0.0.1:7777/ を使ってください。";
+    } else {
+      text = "取得エラー: " + msg;
+    }
+    setWarnings("⚠ " + text);
+  } finally {
+    refreshBusy = false;
+    btn.disabled = false; btn.textContent = "今すぐ更新";
+    render();
+  }
+});
+
+document.getElementById("save").addEventListener("click", async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
+  try{
+    const body = {
+      collect_interval_minutes: Number(document.getElementById("interval").value),
+      thresholds: {
+        warn: Number(document.getElementById("warn").value),
+        danger: Number(document.getElementById("danger").value),
+      },
+      notify: { ...state.settings.notify, threshold: Number(document.getElementById("notifyth").value) },
+      services: state.settings.services,
+      layout: state.settings.layout,
+    };
+    const r = await (await fetch("/api/settings", {
+      method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(body)
+    })).json();
+    if(r.clamped) alert(`取得間隔は下限 ${r.min_interval_minutes} 分に引き上げられました。`);
+    await load();
+  } finally { btn.disabled = false; }
+});
+
+load();
+setInterval(render, 30000);      // カウントダウン・鮮度の更新
+setInterval(load, 5 * 60000);    // 最新スナップショットの読み直し
+</script>
+</body>
+</html>

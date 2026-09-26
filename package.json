@@ -1,0 +1,34 @@
+{
+  "name": "ai-quota-viewer",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Claude / Codex / Grok のレート制限を1画面で見るローカルツール",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "collect": "node src/index.mjs collect --service codex",
+    "test": "node --test"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "license": "MIT",
+  "author": "kotodamaP",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kotodamaP/ai-quota-viewer.git"
+  },
+  "keywords": [
+    "ai",
+    "quota",
+    "rate-limit",
+    "claude",
+    "codex",
+    "grok",
+    "cursor",
+    "gemini",
+    "runpod",
+    "dashboard"
+  ]
+}

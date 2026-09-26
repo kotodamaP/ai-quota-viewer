@@ -1,0 +1,77 @@
+{
+  "_comment": [
+    "クレジット単価テーブル（設定サンプル）。",
+    "為替レートは収集時に open.er-api.com から自動取得されます（auto: true の場合）。",
+    "各サービスのサブスク月額やクレジット単価を設定することで、ダッシュボード上で円換算・月額合計が表示されます。"
+  ],
+  "fx": {
+    "usd_jpy": 155,
+    "last_verified": "2026-09-26",
+    "source": "自動取得 (open.er-api.com)",
+    "note": "初期サンプル値。収集デーモン起動時に自動更新されます。",
+    "auto": true
+  },
+  "services": {
+    "claude": {
+      "plan": "Pro",
+      "credit_unit": "USD",
+      "subscription_monthly_usd": 20,
+      "monthly_price_note": "Claude Pro = $20/月（公表定価ベース）",
+      "unit_price_jpy": 155,
+      "monthly_cap_usd": 100,
+      "last_verified": "2026-09-26",
+      "note": "利用上限と残高のサンプル設定。"
+    },
+    "codex": {
+      "plan": "Plus",
+      "credit_unit": "credit",
+      "monthly_price_note": "ChatGPT Plus = $20/月（公表定価ベース）",
+      "unit_price_jpy": 6.2,
+      "usd_per_credit": 0.04,
+      "last_verified": "2026-09-26",
+      "subscription_monthly_usd": 20
+    },
+    "grok": {
+      "plan": "SuperGrok",
+      "credit_unit": "USD",
+      "subscription_monthly_usd": 30,
+      "monthly_price_note": "SuperGrok = $30/月（公表定価ベース）",
+      "unit_price_jpy": 155,
+      "monthly_cap_usd": 50,
+      "last_verified": "2026-09-26"
+    },
+    "cursor": {
+      "plan": "Pro",
+      "credit_unit": "USD",
+      "subscription_monthly_usd": 20,
+      "monthly_price_note": "Cursor Pro = $20/月（公表定価ベース）",
+      "unit_price_jpy": 155,
+      "monthly_cap_usd": 50,
+      "last_verified": "2026-09-26"
+    },
+    "gemini": {
+      "plan": "Free tier",
+      "credit_unit": null,
+      "subscription_monthly_usd": 0,
+      "monthly_price_note": "Google AI Studio API 無料枠",
+      "unit_price_jpy": null,
+      "last_verified": "2026-09-26"
+    },
+    "antigravity": {
+      "plan": "Subscription",
+      "credit_unit": null,
+      "subscription_monthly_usd": 0,
+      "monthly_price_note": "Antigravity CLI",
+      "unit_price_jpy": null,
+      "last_verified": "2026-09-26"
+    },
+    "runpod": {
+      "plan": "Cloud GPU",
+      "credit_unit": "USD",
+      "subscription_monthly_usd": 0,
+      "monthly_price_note": "従量課金残高",
+      "unit_price_jpy": 155,
+      "last_verified": "2026-09-26"
+    }
+  }
+}

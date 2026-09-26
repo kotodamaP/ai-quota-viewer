@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://local/ai-quota-viewer/canonical.schema.json",
+  "title": "AI Quota Viewer canonical snapshot",
+  "description": "1サービス1回分の取得結果。P0実測(2026-07-25)に基づく2階層モデル。AI Quota Viewer canonical schema",
+  "type": "object",
+  "required": ["service", "fetched_at", "source", "ok", "limits"],
+  "additionalProperties": false,
+  "properties": {
+    "service": {
+      "type": "string",
+      "enum": ["claude", "codex", "grok", "cursor", "opencode", "qwencloud", "gemini", "antigravity"]
+    },
+    "plan": {
+      "type": ["string", "null"],
+      "description": "実測プラン名。例: 'pro', 'Max (5x)', 'ultra', 'SuperGrok'。履歴上変遷するため常に最新を採用する。"
+    },
+    "fetched_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "collectorが取得した時刻。ISO8601 + オフセット付き（JST は +09:00）。"
+    },
+    "source_updated_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "サービス側の集計時刻。Claudeの『最終更新: 3分前』等から算出できる場合のみ。無ければ null。"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["local-jsonl", "local-app-server", "local-cli", "cdp-dom", "local-sqlite", "manual"]
+    },
+    "ok": { "type": "boolean" },
+    "error": {
+      "type": ["string", "null"],
+      "description": "ok=false のときのみ。認証情報・トークンを絶対に含めないこと。"
+    },
+
+    "limits": {
+      "type": "array",
+      "description": "limit_id 単位の独立枠。P0実測で4社中3社がモデル/用途別の別枠を持つことを確認済み。",
+      "items": {
+        "type": "object",
+        "required": ["limit_id", "windows"],
+        "additionalProperties": false,
+        "properties": {
+          "limit_id": {
+            "type": "string",
+            "description": "例: codex, codex_bengalfox, all_models, fable, api, chat"
+          },
+          "label": {
+            "type": ["string", "null"],
+            "description": "UI表示名。Codexの limit_name（例 'GPT-5.3-Codex-Spark'）や実測ラベル。"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["window_minutes", "kind"],
+              "additionalProperties": false,
+              "properties": {
+                "window_minutes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "300=5h, 10080=週, 43200=月。★スロット名(primary/secondary)ではなくこの値で種別を判定する。0 は不正値として除外すること（実データに3件存在）。"
+                },
+                "kind": { "type": "string", "enum": ["percent", "amount"] },
+                "label": { "type": ["string", "null"] },
+                "used_percent": { "type": ["number", "null"], "minimum": 0 },
+                "used_amount": { "type": ["number", "null"], "minimum": 0 },
+                "limit_amount": {
+                  "type": ["number", "null"],
+                  "description": "上限が数値で取れる場合のみ。取れないサービスは null にし、UI側で『上限非公開』と明示する。"
+                },
+                "resets_at": { "type": ["string", "null"], "format": "date-time" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "spend": {
+      "type": ["object", "null"],
+      "description": "金額ベースの枠（Cursorの請求期間消費、Claudeの使用クレジット等）。存在しないサービスは null。",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["amount"] },
+        "currency": { "type": "string", "description": "ISO4217。実測では全社 USD。" },
+        "used_amount": { "type": ["number", "null"] },
+        "limit_amount": { "type": ["number", "null"] },
+        "used_percent": { "type": ["number", "null"] },
+        "balance": { "type": ["number", "null"], "description": "残高。非公開のサービスは null。" },
+        "period_start": { "type": ["string", "null"] },
+        "period_end": { "type": ["string", "null"] },
+        "resets_at": { "type": ["string", "null"], "format": "date-time" },
+        "auto_recharge": { "type": ["boolean", "null"] },
+        "unit_price_jpy": {
+          "type": ["number", "null"],
+          "description": "config/pricing.json から注入する。★自動取得しない。"
+        }
+      }
+    }
+  }
+}

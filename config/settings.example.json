@@ -1,0 +1,62 @@
+{
+  "collect_interval_minutes": 15,
+  "thresholds": {
+    "warn": 70,
+    "danger": 90
+  },
+  "notify": {
+    "enabled": true,
+    "threshold": 80,
+    "cooldown_minutes": 60
+  },
+  "dashboard": {
+    "host": "127.0.0.1",
+    "port": 7777
+  },
+  "services": {
+    "codex": true,
+    "claude": true,
+    "grok": true,
+    "cursor": false,
+    "opencode": false,
+    "qwencloud": false,
+    "gemini": false,
+    "antigravity": true
+  },
+  "shadowban": {
+    "enabled": false,
+    "screen_name": "example_user"
+  },
+  "layout": {
+    "order": [
+      "claude",
+      "codex",
+      "antigravity",
+      "grok",
+      "gemini",
+      "cursor",
+      "opencode",
+      "qwencloud"
+    ],
+    "density": "comfortable"
+  },
+  "cdp": {
+    "mode": "managed",
+    "chrome_path": null,
+    "profile_dir": ".chrome-profile",
+    "port": 9335,
+    "offscreen": true,
+    "fallback_to_attach": false,
+    "script_path": null,
+    "open_tab_if_missing": false,
+    "timeout_ms": 45000
+  },
+  "pricing_stale_days": 90,
+  "agy": {
+    "path": null,
+    "timeout_ms": 60000
+  },
+  "extras": {
+    "runpod": true
+  }
+}

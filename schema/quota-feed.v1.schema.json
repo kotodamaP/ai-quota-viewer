@@ -1,0 +1,518 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "quota-feed/1",
+  "description": "AI Quota Viewer 共通フィード。生産者は ai-quota-viewer（watch）のみ。v1 内は任意項目の追加だけ。利用側は知らない項目を無視し、stale_at を読むたびに現在時刻と比べる。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generation",
+    "generated_at",
+    "producer",
+    "fx",
+    "subscriptions",
+    "services"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "enum": [
+        "quota-feed/1"
+      ]
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "interval_minutes"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "interval_minutes": {
+          "type": "integer",
+          "minimum": 15
+        }
+      }
+    },
+    "fx": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "usd_jpy",
+        "as_of",
+        "source"
+      ],
+      "properties": {
+        "usd_jpy": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "subscriptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "monthly_total_jpy",
+        "next"
+      ],
+      "properties": {
+        "monthly_total_jpy": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "next": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "effective",
+            "monthly_total_jpy"
+          ],
+          "properties": {
+            "effective": {
+              "type": "string"
+            },
+            "monthly_total_jpy": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "ok",
+          "error",
+          "fetched_at",
+          "stale_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "infra"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fetched_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_ok_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stale_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headline": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "limit_id",
+              "limit_label",
+              "window_minutes",
+              "label",
+              "used_percent",
+              "remaining_percent",
+              "resets_at",
+              "used_amount",
+              "limit_amount",
+              "severity"
+            ],
+            "properties": {
+              "limit_id": {
+                "type": "string"
+              },
+              "limit_label": {
+                "type": "string"
+              },
+              "window_minutes": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "used_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "remaining_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "resets_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "used_amount": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "limit_amount": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "severity": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "ok",
+                  "warn",
+                  "danger",
+                  null
+                ]
+              }
+            }
+          },
+          "weekly": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "limit_id",
+              "limit_label",
+              "window_minutes",
+              "label",
+              "used_percent",
+              "remaining_percent",
+              "resets_at",
+              "used_amount",
+              "limit_amount",
+              "severity"
+            ],
+            "properties": {
+              "limit_id": {
+                "type": "string"
+              },
+              "limit_label": {
+                "type": "string"
+              },
+              "window_minutes": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "used_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "remaining_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "resets_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "used_amount": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "limit_amount": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "severity": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "ok",
+                  "warn",
+                  "danger",
+                  null
+                ]
+              }
+            }
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "limit_id",
+                "limit_label",
+                "window_minutes",
+                "label",
+                "used_percent",
+                "remaining_percent",
+                "resets_at",
+                "used_amount",
+                "limit_amount",
+                "severity"
+              ],
+              "properties": {
+                "limit_id": {
+                  "type": "string"
+                },
+                "limit_label": {
+                  "type": "string"
+                },
+                "window_minutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "used_percent": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "remaining_percent": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "resets_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "used_amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "limit_amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "severity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "ok",
+                    "warn",
+                    "danger",
+                    null
+                  ]
+                }
+              }
+            }
+          },
+          "spend": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "currency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "used_amount": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "limit_amount": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "used_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "balance": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "auto_recharge": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "resets_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "monthly_jpy": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balance": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "usd",
+              "jpy",
+              "spend_per_hr_usd",
+              "hours_left"
+            ],
+            "properties": {
+              "usd": {
+                "type": "number"
+              },
+              "jpy": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "spend_per_hr_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "hours_left": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
